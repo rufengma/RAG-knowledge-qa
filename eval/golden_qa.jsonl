@@ -1,0 +1,10 @@
+{"question": "What does RAG stand for and what problem does it solve?", "expected_sources": ["rag_concepts.md"], "answer": "Retrieval-Augmented Generation; it addresses LLMs' fixed knowledge cutoff and hallucination by grounding answers in retrieved documents."}
+{"question": "What are the four stages of a typical RAG pipeline?", "expected_sources": ["rag_concepts.md"], "answer": "Ingestion, indexing, retrieval, and generation."}
+{"question": "What is a good starting point for chunk size and overlap?", "expected_sources": ["rag_concepts.md"], "answer": "500 characters with 50 characters of overlap."}
+{"question": "How does a vector database differ from a traditional database?", "expected_sources": ["vector_databases.md"], "answer": "It finds vectors closest to a query vector via similarity search instead of exact key lookup."}
+{"question": "Why are cosine similarity and inner product equivalent for normalized vectors?", "expected_sources": ["vector_databases.md"], "answer": "Because L2-normalized vectors make inner product equal cosine similarity."}
+{"question": "What are HNSW and IVF used for?", "expected_sources": ["vector_databases.md"], "answer": "Approximate nearest neighbor algorithms that trade a little recall for large speedups."}
+{"question": "What should a RAG prompt tell the model to do when sources lack the answer?", "expected_sources": ["prompt_engineering.md"], "answer": "Say \"I don't know\" instead of guessing."}
+{"question": "What temperature range is recommended for factual Q&A?", "expected_sources": ["prompt_engineering.md"], "answer": "Low, 0.0 to 0.3."}
+{"question": "What is the difference between hit rate@k and recall@k?", "expected_sources": ["evaluating_rag.md"], "answer": "Hit rate@k is the fraction of questions with at least one relevant doc in top-k; recall@k is the fraction of all relevant docs found in top-k."}
+{"question": "What does an LLM-as-judge check for faithfulness?", "expected_sources": ["evaluating_rag.md"], "answer": "Whether every factual claim in the answer is supported by the retrieved sources."}

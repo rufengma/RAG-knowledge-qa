@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Built FAISS index + chunk metadata (regenerate with `python cli.py ingest ...`)
+data/index/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.envrc
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store

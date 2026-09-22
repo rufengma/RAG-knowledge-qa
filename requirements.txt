@@ -1,0 +1,12 @@
+# Core RAG pipeline
+sentence-transformers>=2.7.0   # local embeddings (default: all-MiniLM-L6-v2)
+faiss-cpu>=1.8.0               # vector index
+pypdf>=4.0.0                   # PDF ingestion
+openai>=1.30.0                 # OpenAI-compatible chat + embedding API
+python-dotenv>=1.0.0           # .env config
+
+# Demo UI
+streamlit>=1.35.0              # minimal chat UI (app.py)
+
+# Dev / eval
+numpy>=1.26.0
