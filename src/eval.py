@@ -102,8 +102,9 @@ def compare_configs(
     index_dir: str,
     golden: list[dict],
     top_k_options: tuple[int, ...] = (1, 3, 5),
+    strategy: str = "dense",
 ) -> None:
-    """Rebuild-free config sweep: vary only retrieval-time knobs (top_k).
+    """Rebuild-free config sweep: vary only retrieval-time knobs (top_k, strategy).
 
     Chunk-size/strategy comparisons require re-ingesting; see README.
     """
@@ -116,11 +117,12 @@ def compare_configs(
     )
     store = VectorStore.load(index_dir, embedding_model=_embedding_model_name())
     print(f"\nIndex: {len(store)} chunks | embedding model: {_embedding_model_name()}")
+    print(f"Strategy: {strategy} (alpha={settings.hybrid_alpha})")
     print(f"Golden set: {len(golden)} questions\n")
     print(f"{'top_k':>6} | {'hit_rate':>8} | {'recall':>8}")
     print("-" * 30)
     for k in top_k_options:
-        retriever = Retriever(store, embedder, top_k=k)
+        retriever = Retriever(store, embedder, top_k=k, strategy=strategy, alpha=settings.hybrid_alpha)
         m = retrieval_metrics(retriever, golden, k_values=(k,))[k]
         print(f"{k:>6} | {m['hit_rate']:>8.2%} | {m['recall']:>8.2%}")
 
@@ -134,10 +136,17 @@ def main() -> None:
     parser.add_argument("--golden", default="eval/golden_qa.jsonl", help="Path to golden Q&A jsonl")
     parser.add_argument("--judge", action="store_true", help="Run LLM-as-judge faithfulness check (needs API key)")
     parser.add_argument("--top-k", type=int, nargs="+", default=[1, 3, 5], help="k values for the config table")
+    parser.add_argument(
+        "--strategy",
+        choices=["dense", "bm25", "hybrid"],
+        default=None,
+        help="Retrieval strategy for the eval run (default: RETRIEVAL_STRATEGY env, else 'dense')",
+    )
     args = parser.parse_args()
 
     settings.validate()
     golden = load_golden(Path(args.golden))
+    strategy = args.strategy or settings.retrieval_strategy
 
     embedder = make_embedding_client(
         provider=settings.embedding_provider,
@@ -151,7 +160,7 @@ def main() -> None:
 
     # 1) Retrieval metrics — no LLM needed.
     print("\n=== Retrieval metrics ===")
-    compare_configs(settings.index_dir, golden, top_k_options=tuple(args.top_k))
+    compare_configs(settings.index_dir, golden, top_k_options=tuple(args.top_k), strategy=strategy)
 
     # 2) Optional LLM-as-judge faithfulness on generated answers.
     if args.judge:

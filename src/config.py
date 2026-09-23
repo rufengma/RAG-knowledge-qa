@@ -22,6 +22,13 @@ def _getint(name: str, default: int) -> int:
         raise ValueError(f"Env var {name} must be an int, got {os.environ.get(name)!r}") from exc
 
 
+def _getfloat(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise ValueError(f"Env var {name} must be a float, got {os.environ.get(name)!r}") from exc
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- LLM (OpenAI-compatible) ---
@@ -41,6 +48,8 @@ class Settings:
 
     # --- Retrieval ---
     top_k: int = _getint("TOP_K", 5)
+    retrieval_strategy: str = _getenv("RETRIEVAL_STRATEGY", "dense")  # "dense" | "bm25" | "hybrid"
+    hybrid_alpha: float = _getfloat("HYBRID_ALPHA", 0.4)  # dense weight in hybrid fusion
 
     # --- Paths ---
     index_dir: str = _getenv("INDEX_DIR", "data/index")
@@ -52,6 +61,13 @@ class Settings:
             raise ValueError(f"EMBEDDING_PROVIDER must be 'local' or 'openai', got {self.embedding_provider!r}")
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
+        if self.retrieval_strategy not in ("dense", "bm25", "hybrid"):
+            raise ValueError(
+                "RETRIEVAL_STRATEGY must be 'dense', 'bm25' or 'hybrid', "
+                f"got {self.retrieval_strategy!r}"
+            )
+        if not 0.0 <= self.hybrid_alpha <= 1.0:
+            raise ValueError(f"HYBRID_ALPHA must be in [0, 1], got {self.hybrid_alpha!r}")
 
 
 settings = Settings()

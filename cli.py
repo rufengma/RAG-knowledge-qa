@@ -62,7 +62,13 @@ def cmd_ingest(args: argparse.Namespace) -> None:
 def load_retriever() -> Retriever:
     settings.validate()
     store = VectorStore.load(settings.index_dir, embedding_model=embedding_model_name())
-    return Retriever(store, make_embedder(), top_k=settings.top_k)
+    return Retriever(
+        store,
+        make_embedder(),
+        top_k=settings.top_k,
+        strategy=settings.retrieval_strategy,
+        alpha=settings.hybrid_alpha,
+    )
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
@@ -74,7 +80,9 @@ def cmd_ask(args: argparse.Namespace) -> None:
 
 def cmd_retrieve(args: argparse.Namespace) -> None:
     retriever = load_retriever()
-    for i, r in enumerate(retriever.retrieve(args.question, top_k=args.top_k)):
+    strategy = args.strategy or retriever.strategy
+    print(f"strategy={strategy} alpha={retriever.alpha}")
+    for i, r in enumerate(retriever.retrieve(args.question, top_k=args.top_k, strategy=strategy)):
         print(f"[{i + 1}] score={r.score:.3f} {r.chunk.source} ({r.chunk.location})")
         print(f"    {r.chunk.text[:200].replace(chr(10), ' ')}...")
         print()
@@ -93,6 +101,12 @@ def main() -> None:
     p_retrieve = sub.add_parser("retrieve", help="Show top-k retrieved chunks (no LLM needed)")
     p_retrieve.add_argument("question", help="The query")
     p_retrieve.add_argument("--top-k", type=int, default=None)
+    p_retrieve.add_argument(
+        "--strategy",
+        choices=["dense", "bm25", "hybrid"],
+        default=None,
+        help="Retrieval strategy (default: RETRIEVAL_STRATEGY env, else 'dense')",
+    )
 
     args = parser.parse_args()
     {"ingest": cmd_ingest, "ask": cmd_ask, "retrieve": cmd_retrieve}[args.command](args)

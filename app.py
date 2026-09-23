@@ -90,7 +90,13 @@ for q, a in st.session_state.history:
 question = st.chat_input("Ask about your documents...")
 if question and index_exists():
     store = VectorStore.load(settings.index_dir, embedding_model_name())
-    retriever = Retriever(store, get_embedder(), top_k=settings.top_k)
+    retriever = Retriever(
+        store,
+        get_embedder(),
+        top_k=settings.top_k,
+        strategy=settings.retrieval_strategy,
+        alpha=settings.hybrid_alpha,
+    )
     with st.chat_message("user"):
         st.markdown(question)
     with st.chat_message("assistant"):

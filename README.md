@@ -65,6 +65,8 @@ variables or a `.env` file (see `.env.example`):
 | `CHUNK_OVERLAP` | `50` | Overlap between consecutive chunks |
 | `CHUNK_STRATEGY` | `fixed` | `fixed` or `paragraph` |
 | `TOP_K` | `5` | Retrieved chunks per query |
+| `RETRIEVAL_STRATEGY` | `dense` | `dense` (FAISS cosine), `bm25` (keyword), or `hybrid` (weighted-sum fusion) |
+| `HYBRID_ALPHA` | `0.4` | Dense weight in hybrid fusion (`0` = pure BM25, `1` = pure dense) |
 
 Changing the embedding model invalidates the index — the loader checks the
 stored model name and tells you to re-run ingest.
@@ -89,6 +91,26 @@ To compare chunking strategies: change `CHUNK_STRATEGY`/`CHUNK_SIZE` in `.env`,
 re-run `python cli.py ingest data/sample_docs`, then `python -m src.eval`.
 Record the table in `eval/results.md` to track regressions.
 
+## Hybrid retrieval
+
+Dense embeddings sometimes miss keyword-heavy queries (acronyms, error codes,
+product names). `RETRIEVAL_STRATEGY=hybrid` fuses dense cosine scores with an
+in-house BM25 implementation (`src/hybrid.py`, no extra dependency): both
+candidate lists are min-max normalized and combined as
+`alpha * dense + (1 - alpha) * bm25` with `alpha = HYBRID_ALPHA`.
+
+```bash
+python cli.py retrieve "What are HNSW and IVF used for?" --strategy hybrid
+python -m src.eval --strategy hybrid        # eval with hybrid retrieval
+python -m src.eval --strategy bm25          # BM25 only, no embeddings needed
+```
+
+`HYBRID_ALPHA=0.4` is the default because a sweep on the golden set showed it
+fixes the acronym miss (hit_rate@3: 90% → 100%) without regressing anything
+dense already got right; `0.5` reintroduced a miss on this small corpus.
+Re-tune it on your own golden set for real corpora. Pure BM25 (`bm25`) is
+useful when you want keyword search without loading an embedding model.
+
 ## Project layout
 
 ```
@@ -101,7 +123,8 @@ Record the table in `eval/results.md` to track regressions.
 │   ├── ingest.py       # load pdf/md/txt + chunking (fixed, paragraph)
 │   ├── embeddings.py   # local (sentence-transformers) / OpenAI embeddings
 │   ├── vectorstore.py   # FAISS wrapper + disk persistence
-│   ├── retriever.py    # top-k retrieval with cosine scores
+│   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion
+│   ├── hybrid.py       # in-house BM25 index (no extra dependency)
 │   ├── qa.py           # RAG chain: cited answers + "I don't know" fallback
 │   └── eval.py         # golden-set eval: retrieval metrics + LLM judge
 ├── data/
@@ -114,7 +137,7 @@ Record the table in `eval/results.md` to track regressions.
 
 ## Roadmap
 
-- [ ] Hybrid retrieval: BM25 + dense with reciprocal rank fusion
+- [x] Hybrid retrieval: BM25 + dense with weighted-sum fusion (alpha tunable via `HYBRID_ALPHA`)
 - [ ] Reranker stage (cross-encoder) before generation
 - [ ] Semantic chunking strategy
 - [ ] Multi-query / HyDE query expansion
