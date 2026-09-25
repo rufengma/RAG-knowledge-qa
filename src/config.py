@@ -29,6 +29,17 @@ def _getfloat(name: str, default: float) -> float:
         raise ValueError(f"Env var {name} must be a float, got {os.environ.get(name)!r}") from exc
 
 
+def _getbool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    if raw.strip().lower() in ("1", "true", "yes", "y"):
+        return True
+    if raw.strip().lower() in ("0", "false", "no", "n"):
+        return False
+    raise ValueError(f"Env var {name} must be a bool, got {raw!r}")
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- LLM (OpenAI-compatible) ---
@@ -51,6 +62,11 @@ class Settings:
     retrieval_strategy: str = _getenv("RETRIEVAL_STRATEGY", "dense")  # "dense" | "bm25" | "hybrid"
     hybrid_alpha: float = _getfloat("HYBRID_ALPHA", 0.4)  # dense weight in hybrid fusion
 
+    # --- Reranking (cross-encoder, off by default) ---
+    rerank: bool = _getbool("RERANK", False)  # rerank the candidate pool with a cross-encoder
+    rerank_model: str = _getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2")
+    rerank_candidates: int = _getint("RERANK_CANDIDATES", 20)  # first-stage pool size to rerank
+
     # --- Paths ---
     index_dir: str = _getenv("INDEX_DIR", "data/index")
 
@@ -68,6 +84,8 @@ class Settings:
             )
         if not 0.0 <= self.hybrid_alpha <= 1.0:
             raise ValueError(f"HYBRID_ALPHA must be in [0, 1], got {self.hybrid_alpha!r}")
+        if self.rerank_candidates < 1:
+            raise ValueError(f"RERANK_CANDIDATES must be >= 1, got {self.rerank_candidates!r}")
 
 
 settings = Settings()

@@ -68,12 +68,15 @@ def load_retriever() -> Retriever:
         top_k=settings.top_k,
         strategy=settings.retrieval_strategy,
         alpha=settings.hybrid_alpha,
+        rerank=settings.rerank,
+        rerank_model=settings.rerank_model,
+        rerank_candidates=settings.rerank_candidates,
     )
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
     retriever = load_retriever()
-    retrieved = retriever.retrieve(args.question)
+    retrieved = retriever.retrieve(args.question, rerank=args.rerank if args.rerank else None)
     result = answer_question(args.question, retrieved, settings)
     print(format_result(result))
 
@@ -81,9 +84,15 @@ def cmd_ask(args: argparse.Namespace) -> None:
 def cmd_retrieve(args: argparse.Namespace) -> None:
     retriever = load_retriever()
     strategy = args.strategy or retriever.strategy
-    print(f"strategy={strategy} alpha={retriever.alpha}")
-    for i, r in enumerate(retriever.retrieve(args.question, top_k=args.top_k, strategy=strategy)):
-        print(f"[{i + 1}] score={r.score:.3f} {r.chunk.source} ({r.chunk.location})")
+    rerank = args.rerank or retriever.rerank
+    print(f"strategy={strategy} alpha={retriever.alpha} rerank={rerank}")
+    for i, r in enumerate(
+        retriever.retrieve(args.question, top_k=args.top_k, strategy=strategy, rerank=rerank)
+    ):
+        score_line = f"score={r.score:.3f}"
+        if r.rerank_score is not None:
+            score_line += f" rerank_score={r.rerank_score:.3f}"
+        print(f"[{i + 1}] {score_line} {r.chunk.source} ({r.chunk.location})")
         print(f"    {r.chunk.text[:200].replace(chr(10), ' ')}...")
         print()
 
@@ -97,6 +106,11 @@ def main() -> None:
 
     p_ask = sub.add_parser("ask", help="Ask a question (needs OPENAI_API_KEY)")
     p_ask.add_argument("question", help="The question to answer")
+    p_ask.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Rerank the first-stage candidates with a cross-encoder (see RERANK_MODEL)",
+    )
 
     p_retrieve = sub.add_parser("retrieve", help="Show top-k retrieved chunks (no LLM needed)")
     p_retrieve.add_argument("question", help="The query")
@@ -106,6 +120,11 @@ def main() -> None:
         choices=["dense", "bm25", "hybrid"],
         default=None,
         help="Retrieval strategy (default: RETRIEVAL_STRATEGY env, else 'dense')",
+    )
+    p_retrieve.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Rerank the first-stage candidates with a cross-encoder (see RERANK_MODEL)",
     )
 
     args = parser.parse_args()

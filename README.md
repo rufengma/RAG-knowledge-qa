@@ -67,6 +67,9 @@ variables or a `.env` file (see `.env.example`):
 | `TOP_K` | `5` | Retrieved chunks per query |
 | `RETRIEVAL_STRATEGY` | `dense` | `dense` (FAISS cosine), `bm25` (keyword), or `hybrid` (weighted-sum fusion) |
 | `HYBRID_ALPHA` | `0.4` | Dense weight in hybrid fusion (`0` = pure BM25, `1` = pure dense) |
+| `RERANK` | `false` | `true` to rerank first-stage candidates with a cross-encoder |
+| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L6-v2` | Cross-encoder model for reranking |
+| `RERANK_CANDIDATES` | `20` | First-stage candidate pool size to rerank |
 
 Changing the embedding model invalidates the index — the loader checks the
 stored model name and tells you to re-run ingest.
@@ -111,6 +114,28 @@ dense already got right; `0.5` reintroduced a miss on this small corpus.
 Re-tune it on your own golden set for real corpora. Pure BM25 (`bm25`) is
 useful when you want keyword search without loading an embedding model.
 
+## Cross-encoder reranking
+
+Bi-encoder scores (dense cosine, BM25) are cheap but coarse. `--rerank` adds
+a second stage: fetch a larger candidate pool (`RERANK_CANDIDATES`, default 20)
+with the first-stage strategy, then score each (query, chunk) pair jointly
+with a cross-encoder (`src/rerank.py`, default
+`cross-encoder/ms-marco-MiniLM-L6-v2`, downloaded once and cached). The pool
+is reordered down to the final top-k. The original first-stage `score` is kept
+on each chunk (so the relevance threshold in `qa.py` still works on cosine
+scores); the cross-encoder logit is exposed as `rerank_score`.
+
+```bash
+python cli.py retrieve "What are HNSW and IVF used for?" --strategy hybrid --rerank
+python -m src.eval --strategy hybrid --rerank   # measure the gain on the golden set
+```
+
+Reranking costs one model load (~80 MB, CPU-friendly) and ~20 ms per
+(query, chunk) pair, so keep it behind the flag (or `RERANK=true`) and off the
+hot path when latency matters. On the sample golden set, hybrid + rerank
+keeps hit_rate@3 at 100% with more stable top-1 ordering (see
+`eval/results.md`).
+
 ## Project layout
 
 ```
@@ -123,8 +148,9 @@ useful when you want keyword search without loading an embedding model.
 │   ├── ingest.py       # load pdf/md/txt + chunking (fixed, paragraph)
 │   ├── embeddings.py   # local (sentence-transformers) / OpenAI embeddings
 │   ├── vectorstore.py   # FAISS wrapper + disk persistence
-│   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion
+│   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion (+ rerank)
 │   ├── hybrid.py       # in-house BM25 index (no extra dependency)
+│   ├── rerank.py       # cross-encoder second-stage reranking
 │   ├── qa.py           # RAG chain: cited answers + "I don't know" fallback
 │   └── eval.py         # golden-set eval: retrieval metrics + LLM judge
 ├── data/

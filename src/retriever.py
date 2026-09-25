@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from .embeddings import EmbeddingClient
 from .hybrid import BM25Index
 from .ingest import Chunk
+from .rerank import DEFAULT_RERANK_MODEL, Reranker
 from .vectorstore import VectorStore
 
 STRATEGIES = ("dense", "bm25", "hybrid")
@@ -25,6 +26,7 @@ STRATEGIES = ("dense", "bm25", "hybrid")
 class RetrievedChunk:
     chunk: Chunk
     score: float  # cosine similarity in [-1, 1] for dense; BM25 or fused score otherwise
+    rerank_score: float | None = None  # cross-encoder logit, set only when reranked
 
 
 class Retriever:
@@ -35,6 +37,9 @@ class Retriever:
         top_k: int = 5,
         strategy: str = "dense",
         alpha: float = 0.4,
+        rerank: bool = False,
+        rerank_model: str = DEFAULT_RERANK_MODEL,
+        rerank_candidates: int = 20,
     ):
         if strategy not in STRATEGIES:
             raise ValueError(f"strategy must be one of {STRATEGIES}, got {strategy!r}")
@@ -45,16 +50,33 @@ class Retriever:
         self.top_k = top_k
         self.strategy = strategy
         self.alpha = alpha
+        self.rerank = rerank
+        self.rerank_model = rerank_model
+        self.rerank_candidates = rerank_candidates
         self._bm25: BM25Index | None = None  # built lazily; only needed for bm25/hybrid
+        self._reranker: Reranker | None = None  # loaded lazily; only when reranking
 
     def _bm25_index(self) -> BM25Index:
         if self._bm25 is None:
             self._bm25 = BM25Index(self.store.chunks)
         return self._bm25
 
-    def retrieve(self, query: str, top_k: int | None = None, strategy: str | None = None) -> list[RetrievedChunk]:
+    def retrieve(self, query: str, top_k: int | None = None, strategy: str | None = None,
+                 rerank: bool | None = None) -> list[RetrievedChunk]:
         k = top_k if top_k is not None else self.top_k
         strat = strategy or self.strategy
+        do_rerank = self.rerank if rerank is None else rerank
+
+        if do_rerank:
+            # Fetch a larger candidate pool from the cheap first-stage
+            # strategy, then let the cross-encoder reorder it down to k.
+            pool_k = max(k * 2, min(self.rerank_candidates, len(self.store)))
+            candidates = self._retrieve_first_stage(query, pool_k, strat)
+            return self._reranker_lazy().rerank(query, candidates, top_k=k)
+
+        return self._retrieve_first_stage(query, k, strat)
+
+    def _retrieve_first_stage(self, query: str, k: int, strat: str) -> list[RetrievedChunk]:
         if strat == "dense":
             return self._dense(query, k)
         if strat == "bm25":
@@ -62,6 +84,11 @@ class Retriever:
         if strat == "hybrid":
             return self._hybrid(query, k)
         raise ValueError(f"strategy must be one of {STRATEGIES}, got {strat!r}")
+
+    def _reranker_lazy(self) -> Reranker:
+        if self._reranker is None:
+            self._reranker = Reranker(self.rerank_model)
+        return self._reranker
 
     # -- strategies -------------------------------------------------------
     def _dense(self, query: str, k: int) -> list[RetrievedChunk]:

@@ -47,6 +47,24 @@ The acronym miss ("What are HNSW and IVF used for?") is now retrieved at
 rank 1 under hybrid; pure BM25 alone also gets 9/10 @1 (it misses "What does
 RAG stand for?" instead — keyword ambiguity). No regression vs. dense @1.
 
+## Hybrid + cross-encoder rerank — 2026-09-25
+
+`--rerank` (or `RERANK=true`): fetch a `RERANK_CANDIDATES=20` pool with the
+first-stage strategy, then reorder it with
+`cross-encoder/ms-marco-MiniLM-L6-v2` (`src/rerank.py`, lazy-loaded). The
+original first-stage `score` is kept on each chunk; the cross-encoder logit
+is exposed as `rerank_score`.
+
+| top_k | hit_rate | recall |
+|------:|---------:|-------:|
+|     1 |   100.00% | 100.00% |
+|     3 |   100.00% | 100.00% |
+|     5 |   100.00% | 100.00% |
+
+Fixes hybrid's last @1 miss ("What does RAG stand for and what problem does
+it solve?") — the cross-encoder correctly prefers the definitional chunk.
+No regressions.
+
 ## Notes
 
 -
