@@ -10,3 +10,4 @@ streamlit>=1.35.0              # minimal chat UI (app.py)
 
 # Dev / eval
 numpy>=1.26.0
+pytest>=8.0.0  # run the suite with: pytest tests/ -q
