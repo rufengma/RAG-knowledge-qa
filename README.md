@@ -136,6 +136,18 @@ hot path when latency matters. On the sample golden set, hybrid + rerank
 keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 `eval/results.md`).
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `ValueError: Index was built with embedding model '...'` | You changed `EMBEDDING_MODEL` or `EMBEDDING_PROVIDER` after ingesting; the stored index no longer matches | Re-run `python cli.py ingest data/sample_docs` |
+| `ValueError: OPENAI_API_KEY is not set — copy .env.example to .env and add your key.` | `ask` / the Streamlit UI needs an LLM, but no key is set | `cp .env.example .env` and add your key (retrieval-only commands don't need one) |
+| `ValueError: OPENAI_API_KEY is required for --judge` | `python -m src.eval --judge` calls an LLM as judge | Set `OPENAI_API_KEY`, or drop `--judge` for retrieval metrics only |
+| `ValueError: Env var TOP_K must be an int, got '...'` | A numeric setting in `.env` isn't a number | Fix the value (e.g. `TOP_K=5`) — the config parser validates ints/floats on load |
+| Retrieval returns stale answers after editing docs | The index is only rebuilt on `ingest` | Re-run `python cli.py ingest data/sample_docs` after changing any document |
+| First run is slow | Embedding and rerank models download on first use (~80–90 MB each) | Wait for the initial download; subsequent runs use the local cache |
+| Pointing at a local LLM (Ollama/vLLM) fails | `LLM_BASE_URL`/`LLM_MODEL` not overridden | Set `LLM_BASE_URL=http://localhost:11434/v1` and `LLM_MODEL=<your model>` in `.env` |
+
 ## Project layout
 
 ```
