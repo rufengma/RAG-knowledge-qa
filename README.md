@@ -181,3 +181,7 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 - [ ] Multi-query / HyDE query expansion
 - [ ] Dockerfile + one-command demo
 - [ ] Persisted eval history with charts in `eval/results.md`
+
+## License
+
+MIT — see [LICENSE](LICENSE).
