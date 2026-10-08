@@ -6,24 +6,38 @@ Built as a portfolio project — readable code, real evals, no magic.
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Ingest ["Indexing (offline)"]
+        Docs["data/sample_docs/\n(PDF / Markdown / TXT)"]
+        Load["ingest.py\nload_documents + chunk\n(fixed | paragraph)"]
+        Embed["embeddings.py\n(sentence-transformers | OpenAI)"]
+        Store["vectorstore.py\nFAISS index -> data/index/"]
+        Docs --> Load --> Embed --> Store
+    end
+
+    subgraph Query ["Question answering"]
+        Q(["question"])
+        Ret["retriever.py\ntop-k: dense | bm25 | hybrid\n+ optional cross-encoder rerank"]
+        QA["qa.py\ncited answer\n('I don't know' when nothing relevant)"]
+        Q --> Ret --> QA
+    end
+
+    subgraph Evals ["Evaluation"]
+        Gold["eval/golden_qa.jsonl"]
+        Eval["eval.py\nhit_rate@k, recall@k\n+ LLM-as-judge faithfulness"]
+        Gold --> Eval --> Results["eval/results.md"]
+    end
+
+    Store -->|"chunks + scores"| Ret
+    Ret -->|"retrieval metrics"| Eval
+    CLI["cli.py ingest | retrieve | ask"] -.-> Ingest
+    CLI -.-> Query
+    App["app.py\nStreamlit chat UI"] -.-> Query
 ```
-data/sample_docs/ ──► ingest.py ──► chunk (fixed | paragraph)
-                                         │
-                                         ▼
-                              embeddings.py (sentence-transformers | OpenAI)
-                                         │
-                                         ▼
-                              vectorstore.py (FAISS, persisted to data/index/)
-                                         │
-                              ┌──────────┴──────────┐
-                              ▼                     ▼
-                      retriever.py               eval.py
-                    (top-k + scores)      (hit_rate@k, recall@k, LLM judge)
-                              │
-                              ▼
-                        qa.py ──► answer with [1][2] citations
-                              (refuses with "I don't know" when nothing relevant)
-```
+
+Index once, then ask from the CLI (`python cli.py ask "…"`), the Streamlit UI
+(`streamlit run app.py`), or run the offline evals (`python -m src.eval`).
 
 ## Quickstart
 
