@@ -69,6 +69,8 @@ class Settings:
 
     # --- Paths ---
     index_dir: str = _getenv("INDEX_DIR", "data/index")
+    # JSONL path for per-query usage logging (tokens + latency); empty = disabled.
+    usage_log: str = _getenv("USAGE_LOG", "")
 
     def validate(self) -> None:
         if self.chunk_strategy not in ("fixed", "paragraph"):

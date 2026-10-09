@@ -8,10 +8,13 @@ Honesty rules (enforced in the system prompt AND in code):
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from .config import Settings
 from .retriever import RetrievedChunk
+from .usage import UsageRecord, append_usage
 
 # Chunks scoring below this cosine similarity are treated as irrelevant.
 # MiniLM cosine scores for on-topic chunks are usually well above 0.35.
@@ -40,21 +43,55 @@ def build_prompt(question: str, retrieved: list[RetrievedChunk]) -> str:
     return f"{SYSTEM_PROMPT}\n\nSources:\n{sources}\n\nQuestion: {question}\nAnswer:"
 
 
+def _maybe_log_usage(
+    settings: Settings,
+    question: str,
+    result: QAResult,
+    latency_ms: float,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    total_tokens: int | None,
+) -> None:
+    """Append one JSONL usage record when USAGE_LOG is set; no-op otherwise."""
+    if not settings.usage_log:
+        return
+    append_usage(
+        settings.usage_log,
+        UsageRecord(
+            timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            question=question[:200],
+            model=settings.llm_model,
+            grounded=result.grounded,
+            num_sources=len(result.sources),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            latency_ms=round(latency_ms, 2),
+        ),
+    )
+
+
 def answer_question(
     question: str,
     retrieved: list[RetrievedChunk],
     settings: Settings,
 ) -> QAResult:
     """Run the RAG chain. Requires OPENAI_API_KEY (or another OpenAI-compatible key)."""
+    t0 = time.perf_counter()
     relevant = [r for r in retrieved if r.score >= RELEVANCE_THRESHOLD]
 
     if not relevant:
-        return QAResult(
+        result = QAResult(
             question=question,
             answer="I don't know based on the provided documents.",
             sources=[],
             grounded=False,
         )
+        _maybe_log_usage(
+            settings, question, result, (time.perf_counter() - t0) * 1000,
+            prompt_tokens=None, completion_tokens=None, total_tokens=None,
+        )
+        return result
 
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is not set — copy .env.example to .env and add your key.")
@@ -71,12 +108,20 @@ def answer_question(
         ],
         temperature=0.2,
     )
-    return QAResult(
+    usage = getattr(resp, "usage", None)  # some compatible endpoints omit it
+    result = QAResult(
         question=question,
         answer=resp.choices[0].message.content.strip(),
         sources=relevant,
         grounded=True,
     )
+    _maybe_log_usage(
+        settings, question, result, (time.perf_counter() - t0) * 1000,
+        prompt_tokens=getattr(usage, "prompt_tokens", None),
+        completion_tokens=getattr(usage, "completion_tokens", None),
+        total_tokens=getattr(usage, "total_tokens", None),
+    )
+    return result
 
 
 def format_result(result: QAResult) -> str:

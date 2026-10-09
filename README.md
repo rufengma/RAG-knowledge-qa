@@ -84,9 +84,25 @@ variables or a `.env` file (see `.env.example`):
 | `RERANK` | `false` | `true` to rerank first-stage candidates with a cross-encoder |
 | `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L6-v2` | Cross-encoder model for reranking |
 | `RERANK_CANDIDATES` | `20` | First-stage candidate pool size to rerank |
+| `USAGE_LOG` | *(empty)* | JSONL path for per-query usage logging (tokens + latency); empty = disabled |
 
 Changing the embedding model invalidates the index — the loader checks the
 stored model name and tells you to re-run ingest.
+
+### Query usage log
+
+Set `USAGE_LOG=data/usage.jsonl` to append one JSON line per answered question:
+
+```json
+{"timestamp": "2026-10-09T14:12:03+00:00", "question": "What is RAG?",
+ "model": "gpt-4o-mini", "grounded": true, "num_sources": 3,
+ "prompt_tokens": 812, "completion_tokens": 64, "total_tokens": 876,
+ "latency_ms": 1234.5}
+```
+
+Refusals ("I don't know") are logged too, with `null` token counts and
+`grounded: false` — useful for spotting hard questions. Token counts are `null`
+when the provider's response omits `usage`. Disabled by default.
 
 ## Evaluation
 
@@ -178,6 +194,7 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 │   ├── hybrid.py       # in-house BM25 index (no extra dependency)
 │   ├── rerank.py       # cross-encoder second-stage reranking
 │   ├── qa.py           # RAG chain: cited answers + "I don't know" fallback
+│   ├── usage.py        # per-query token/latency JSONL logging (USAGE_LOG)
 │   └── eval.py         # golden-set eval: retrieval metrics + LLM judge
 ├── data/
 │   ├── sample_docs/    # 4 short markdown docs so the demo works out of the box
