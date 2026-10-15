@@ -196,6 +196,7 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 │   ├── qa.py           # RAG chain: cited answers + "I don't know" fallback
 │   ├── usage.py        # per-query token/latency JSONL logging (USAGE_LOG)
 │   └── eval.py         # golden-set eval: retrieval metrics + LLM judge
+├── tests/              # pytest suites: ingest / eval / usage / config
 ├── data/
 │   ├── sample_docs/    # 4 short markdown docs so the demo works out of the box
 │   └── index/          # built FAISS index (gitignored)
