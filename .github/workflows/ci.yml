@@ -1,0 +1,42 @@
+# CI — every push and pull request runs the test suite and the
+# golden-set retrieval eval (no LLM / API key needed).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-eval:
+    name: pytest + golden-set eval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-all-MiniLM-L6-v2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/ -q
+
+      - name: Build index from sample docs
+        run: python cli.py ingest data/sample_docs
+
+      - name: Evaluate retrieval on the golden set (dense + hybrid)
+        run: |
+          python -m src.eval --golden eval/golden_qa.jsonl
+          python -m src.eval --golden eval/golden_qa.jsonl --strategy hybrid

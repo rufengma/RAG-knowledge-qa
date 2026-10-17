@@ -1,5 +1,7 @@
 # RAG Knowledge-Base Q&A
 
+[![CI](https://github.com/rufengma/RAG-knowledge-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/rufengma/RAG-knowledge-qa/actions/workflows/ci.yml)
+
 A clean, minimal Retrieval-Augmented Generation pipeline: ingest your documents
 (PDF/Markdown/TXT), index them with FAISS, and ask questions with cited answers.
 Built as a portfolio project — readable code, real evals, no magic.
@@ -123,6 +125,11 @@ Retrieval metrics (no LLM needed):
 To compare chunking strategies: change `CHUNK_STRATEGY`/`CHUNK_SIZE` in `.env`,
 re-run `python cli.py ingest data/sample_docs`, then `python -m src.eval`.
 Record the table in `eval/results.md` to track regressions.
+
+Every push and pull request runs the unit tests and the golden-set eval on
+GitHub Actions (`.github/workflows/ci.yml`): install deps, `pytest tests/`,
+build the index from `data/sample_docs`, then `python -m src.eval` with both
+the `dense` and `hybrid` strategies — no API key needed.
 
 ## Hybrid retrieval
 
