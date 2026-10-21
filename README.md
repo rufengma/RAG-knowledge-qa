@@ -10,32 +10,49 @@ Built as a portfolio project — readable code, real evals, no magic.
 
 ```mermaid
 flowchart TB
-    subgraph Ingest ["Indexing (offline)"]
-        Docs["data/sample_docs/\n(PDF / Markdown / TXT)"]
-        Load["ingest.py\nload_documents + chunk\n(fixed | paragraph)"]
-        Embed["embeddings.py\n(sentence-transformers | OpenAI)"]
-        Store["vectorstore.py\nFAISS index -> data/index/"]
+    CLI(["cli.py<br/>ingest | retrieve | ask"]):::entry
+    App(["app.py<br/>Streamlit chat UI"]):::entry
+
+    subgraph Ingest["Indexing — offline"]
+        direction LR
+        Docs["data/sample_docs/<br/>PDF / Markdown / TXT"]:::input
+        Load["ingest.py<br/>load + chunk<br/>fixed | paragraph"]:::process
+        Embed["embeddings.py<br/>sentence-transformers<br/>or OpenAI"]:::model
+        Store["vectorstore.py<br/>FAISS index<br/>→ data/index/"]:::store
         Docs --> Load --> Embed --> Store
     end
 
-    subgraph Query ["Question answering"]
-        Q(["question"])
-        Ret["retriever.py\ntop-k: dense | bm25 | hybrid\n+ optional cross-encoder rerank"]
-        QA["qa.py\ncited answer\n('I don't know' when nothing relevant)"]
+    subgraph Query["Question answering — online"]
+        direction LR
+        Q(["question"]):::input
+        Ret["retriever.py<br/>top-k: dense | bm25 | hybrid<br/>+ cross-encoder rerank"]:::process
+        QA["qa.py<br/>cited answer<br/>'I don't know' if no match"]:::model
         Q --> Ret --> QA
     end
 
-    subgraph Evals ["Evaluation"]
-        Gold["eval/golden_qa.jsonl"]
-        Eval["eval.py\nhit_rate@k, recall@k\n+ LLM-as-judge faithfulness"]
-        Gold --> Eval --> Results["eval/results.md"]
+    subgraph Evals["Evaluation — offline"]
+        direction LR
+        Gold["eval/golden_qa.jsonl<br/>10 golden Q&A pairs"]:::input
+        Eval["eval.py<br/>hit_rate@k · recall@k<br/>LLM-as-judge faithfulness"]:::output
+        Results["eval/results.md<br/>regression tracking"]:::output
+        Gold --> Eval --> Results
     end
 
+    CLI -.-> Ingest
+    CLI -.-> Query
+    App -.-> Query
     Store -->|"chunks + scores"| Ret
     Ret -->|"retrieval metrics"| Eval
-    CLI["cli.py ingest | retrieve | ask"] -.-> Ingest
-    CLI -.-> Query
-    App["app.py\nStreamlit chat UI"] -.-> Query
+
+    classDef entry fill:#0F172A,stroke:#0F172A,color:#FFFFFF,stroke-width:0px
+    classDef input fill:#EAF2FF,stroke:#3B82F6,stroke-width:1.5px,color:#1E3A8A
+    classDef process fill:#E6F7F2,stroke:#0D9488,stroke-width:1.5px,color:#134E4A
+    classDef model fill:#FFF4E0,stroke:#F59E0B,stroke-width:1.5px,color:#78350F
+    classDef store fill:#F3E8FF,stroke:#8B5CF6,stroke-width:1.5px,color:#4C1D95
+    classDef output fill:#E8F5E9,stroke:#22C55E,stroke-width:1.5px,color:#14532D
+    style Ingest fill:#F8FAFC,stroke:#CBD5E1,stroke-width:1.5px
+    style Query fill:#FFFBEB,stroke:#FDE68A,stroke-width:1.5px
+    style Evals fill:#F0FDF4,stroke:#BBF7D0,stroke-width:1.5px
 ```
 
 Index once, then ask from the CLI (`python cli.py ask "…"`), the Streamlit UI
