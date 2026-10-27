@@ -2,6 +2,7 @@
 sentence-transformers>=2.7.0   # local embeddings (default: all-MiniLM-L6-v2) + CrossEncoder for --rerank
 faiss-cpu>=1.8.0               # vector index
 pypdf>=4.0.0                   # PDF ingestion
+python-docx>=1.1.0             # Word (.docx) ingestion
 openai>=1.30.0                 # OpenAI-compatible chat + embedding API
 python-dotenv>=1.0.0           # .env config
 

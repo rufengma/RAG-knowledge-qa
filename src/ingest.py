@@ -1,6 +1,6 @@
 """Document loading + chunking.
 
-Supported inputs: .pdf, .md, .txt (a folder is scanned recursively).
+Supported inputs: .pdf, .md, .txt, .docx (a folder is scanned recursively).
 
 Two chunking strategies:
   - "fixed": sliding window over characters with overlap. Simple, predictable.
@@ -35,7 +35,7 @@ class Chunk:
         return self.metadata.get("location", "")
 
 
-SUPPORTED_SUFFIXES = {".pdf", ".md", ".txt", ".markdown"}
+SUPPORTED_SUFFIXES = {".pdf", ".md", ".txt", ".markdown", ".docx"}
 
 
 def _read_pdf(path: Path) -> list[tuple[str, str]]:
@@ -55,6 +55,26 @@ def _read_text(path: Path) -> list[tuple[str, str]]:
     return [(path.read_text(encoding="utf-8", errors="ignore").strip(), "section 1")]
 
 
+def _read_docx(path: Path) -> list[tuple[str, str]]:
+    """Return [(full_text, location)] for a Word document.
+
+    Paragraphs are joined with blank lines so the paragraph chunker keeps
+    natural boundaries; table rows are appended as extra paragraphs with
+    cells joined by " | " so tabular content stays searchable.
+    """
+    from docx import Document
+
+    doc = Document(str(path))
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                paragraphs.append(" | ".join(cells))
+    text = "\n\n".join(paragraphs)
+    return [(text, "section 1")] if text else []
+
+
 def load_documents(folder: str | Path) -> list[Chunk]:
     """Load every supported file under `folder` as one Chunk per page/section.
 
@@ -70,13 +90,15 @@ def load_documents(folder: str | Path) -> list[Chunk]:
             continue
         if path.suffix.lower() == ".pdf":
             segments = _read_pdf(path)
+        elif path.suffix.lower() == ".docx":
+            segments = _read_docx(path)
         else:
             segments = _read_text(path)
         for text, location in segments:
             if text:
                 docs.append(Chunk(text=text, metadata={"source": path.name, "location": location}))
     if not docs:
-        raise ValueError(f"No supported documents (.pdf/.md/.txt) found in {folder}")
+        raise ValueError(f"No supported documents (.pdf/.md/.txt/.docx) found in {folder}")
     return docs
 
 

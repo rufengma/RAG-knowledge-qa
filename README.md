@@ -3,7 +3,7 @@
 [![CI](https://github.com/rufengma/RAG-knowledge-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/rufengma/RAG-knowledge-qa/actions/workflows/ci.yml)
 
 A clean, minimal Retrieval-Augmented Generation pipeline: ingest your documents
-(PDF/Markdown/TXT), index them with FAISS, and ask questions with cited answers.
+(PDF/Markdown/TXT/DOCX), index them with FAISS, and ask questions with cited answers.
 Built as a portfolio project — readable code, real evals, no magic.
 
 ## Architecture
@@ -15,7 +15,7 @@ flowchart TB
 
     subgraph Ingest["Indexing — offline"]
         direction LR
-        Docs["data/sample_docs/<br/>PDF / Markdown / TXT"]:::input
+        Docs["data/sample_docs/<br/>PDF / Markdown / TXT / DOCX"]:::input
         Load["ingest.py<br/>load + chunk<br/>fixed | paragraph"]:::process
         Embed["embeddings.py<br/>sentence-transformers<br/>or OpenAI"]:::model
         Store["vectorstore.py<br/>FAISS index<br/>→ data/index/"]:::store
@@ -211,7 +211,7 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 ├── .env.example
 ├── src/
 │   ├── config.py       # env-based settings
-│   ├── ingest.py       # load pdf/md/txt + chunking (fixed, paragraph)
+│   ├── ingest.py       # load pdf/md/txt/docx + chunking (fixed, paragraph)
 │   ├── embeddings.py   # local (sentence-transformers) / OpenAI embeddings
 │   ├── vectorstore.py   # FAISS wrapper + disk persistence
 │   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion (+ rerank)

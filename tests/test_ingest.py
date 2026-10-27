@@ -196,3 +196,61 @@ def test_load_documents_missing_folder_raises(tmp_path: Path):
 def test_load_documents_empty_folder_raises(tmp_path: Path):
     with pytest.raises(ValueError, match="No supported documents"):
         load_documents(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# .docx loading
+# ---------------------------------------------------------------------------
+
+
+def _write_docx(path: Path, paragraphs: list[str], table_rows: list[list[str]] | None = None) -> None:
+    from docx import Document
+
+    doc = Document()
+    for text in paragraphs:
+        doc.add_paragraph(text)
+    if table_rows:
+        table = doc.add_table(rows=len(table_rows), cols=len(table_rows[0]))
+        for i, row in enumerate(table_rows):
+            for j, cell in enumerate(row):
+                table.rows[i].cells[j].text = cell
+    doc.save(str(path))
+
+
+def test_load_documents_reads_docx_paragraphs_and_tables(tmp_path: Path):
+    _write_docx(
+        tmp_path / "notes.docx",
+        ["First paragraph.", "Second paragraph about retrievers."],
+        table_rows=[["term", "meaning"], ["chunk", "piece of a document"]],
+    )
+    docs = load_documents(tmp_path)
+    assert len(docs) == 1
+    assert docs[0].source == "notes.docx"
+    assert docs[0].location == "section 1"
+    assert "First paragraph." in docs[0].text
+    assert "Second paragraph about retrievers." in docs[0].text
+    # table rows survive as searchable paragraphs
+    assert "term | meaning" in docs[0].text
+    assert "chunk | piece of a document" in docs[0].text
+
+
+def test_load_documents_docx_chunks_on_paragraph_boundaries(tmp_path: Path):
+    _write_docx(tmp_path / "memo.docx", ["Alpha paragraph.", "Beta paragraph."])
+    docs = load_documents(tmp_path)
+    chunks = chunk_documents(docs, strategy="paragraph", chunk_size=20, chunk_overlap=0)
+    texts = [c.text for c in chunks]
+    # each paragraph fits its own chunk; nothing is glued together
+    assert texts == ["Alpha paragraph.", "Beta paragraph."]
+
+
+def test_load_documents_empty_docx_is_skipped(tmp_path: Path):
+    _write_docx(tmp_path / "empty.docx", [])
+    with pytest.raises(ValueError, match="No supported documents"):
+        load_documents(tmp_path)
+
+
+def test_load_documents_docx_alongside_md(tmp_path: Path):
+    (tmp_path / "a.md").write_text("markdown doc")
+    _write_docx(tmp_path / "b.docx", ["word doc"])
+    docs = load_documents(tmp_path)
+    assert {d.source for d in docs} == {"a.md", "b.docx"}
