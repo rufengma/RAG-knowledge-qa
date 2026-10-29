@@ -81,6 +81,24 @@ python -m src.eval
 streamlit run app.py
 ```
 
+## CLI reference
+
+All flags, as shown by `python cli.py <command> --help`:
+
+| Command | Flags | Notes |
+|---|---|---|
+| `ingest <docs_dir>` | — | Builds the FAISS index from `.pdf`/`.md`/`.txt`/`.markdown`/`.docx` files in the folder. Chunking and embedding come from `.env` (`CHUNK_STRATEGY`, `CHUNK_SIZE`, `EMBEDDING_PROVIDER`…). |
+| `ask "<question>"` | `--rerank` | Generates a cited answer (needs `OPENAI_API_KEY`). Without `--rerank` it uses the `RERANK` env setting. |
+| `retrieve "<question>"` | `--top-k N`, `--strategy {dense,bm25,hybrid}`, `--rerank` | Retrieval only, no LLM needed. `--top-k` overrides `TOP_K` (default 5); `--strategy` overrides `RETRIEVAL_STRATEGY` (default `dense`); `--rerank` forces cross-encoder reranking on. |
+| `python -m src.eval` | `--golden PATH`, `--judge`, `--top-k K [K …]`, `--strategy {dense,bm25,hybrid}`, `--rerank` | Evaluates on the golden set (default `eval/golden_qa.jsonl`). `--judge` adds the LLM-as-judge faithfulness check (needs API key); `--top-k` sweeps several depths in one run. |
+
+```bash
+python cli.py ingest data/sample_docs
+python cli.py retrieve "What is RAG?" --top-k 3 --strategy hybrid --rerank
+python cli.py ask "What is RAG?" --rerank
+python -m src.eval --strategy hybrid --rerank --top-k 1 3 5 10
+```
+
 ## Configuration
 
 All settings live in `src/config.py` and are overridable via environment

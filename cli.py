@@ -102,7 +102,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_ingest = sub.add_parser("ingest", help="Ingest docs and build the FAISS index")
-    p_ingest.add_argument("docs_dir", help="Folder with .pdf/.md/.txt files")
+    p_ingest.add_argument("docs_dir", help="Folder with .pdf/.md/.txt/.markdown/.docx files")
 
     p_ask = sub.add_parser("ask", help="Ask a question (needs OPENAI_API_KEY)")
     p_ask.add_argument("question", help="The question to answer")
