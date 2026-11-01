@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.config import settings  # noqa: E402
 from src.embeddings import make_embedding_client  # noqa: E402
-from src.ingest import chunk_documents, load_documents  # noqa: E402
+from src.ingest import chunk_documents, load_documents, load_url  # noqa: E402
 from src.qa import answer_question, format_result  # noqa: E402
 from src.retriever import Retriever  # noqa: E402
 from src.vectorstore import VectorStore  # noqa: E402
@@ -36,10 +36,8 @@ def make_embedder():
     )
 
 
-def cmd_ingest(args: argparse.Namespace) -> None:
-    settings.validate()
-    docs = load_documents(args.docs_dir)
-    print(f"Loaded {len(docs)} document sections from {args.docs_dir}")
+def _build_index(docs, label: str) -> None:
+    print(f"Loaded {len(docs)} document sections from {label}")
     chunks = chunk_documents(
         docs,
         strategy=settings.chunk_strategy,
@@ -57,6 +55,16 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     store.add(chunks, embeddings)
     store.save(embedding_model=embedding_model_name())
     print(f"Saved index with {len(store)} chunks to {settings.index_dir}/")
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    settings.validate()
+    _build_index(load_documents(args.docs_dir), args.docs_dir)
+
+
+def cmd_ingest_url(args: argparse.Namespace) -> None:
+    settings.validate()
+    _build_index([load_url(args.url)], args.url)
 
 
 def load_retriever() -> Retriever:
@@ -104,6 +112,9 @@ def main() -> None:
     p_ingest = sub.add_parser("ingest", help="Ingest docs and build the FAISS index")
     p_ingest.add_argument("docs_dir", help="Folder with .pdf/.md/.txt/.markdown/.docx files")
 
+    p_ingest_url = sub.add_parser("ingest-url", help="Fetch one web page and build the FAISS index from it")
+    p_ingest_url.add_argument("url", help="http(s) URL of an HTML or plain-text page")
+
     p_ask = sub.add_parser("ask", help="Ask a question (needs OPENAI_API_KEY)")
     p_ask.add_argument("question", help="The question to answer")
     p_ask.add_argument(
@@ -128,7 +139,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    {"ingest": cmd_ingest, "ask": cmd_ask, "retrieve": cmd_retrieve}[args.command](args)
+    {"ingest": cmd_ingest, "ingest-url": cmd_ingest_url, "ask": cmd_ask, "retrieve": cmd_retrieve}[args.command](args)
 
 
 if __name__ == "__main__":

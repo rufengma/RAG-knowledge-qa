@@ -1,6 +1,8 @@
 """Document loading + chunking.
 
-Supported inputs: .pdf, .md, .txt, .docx (a folder is scanned recursively).
+Supported inputs: .pdf, .md, .txt, .docx (a folder is scanned recursively),
+plus a single web URL via :func:`load_url` (fetched, cleaned to text, chunked
+like any other document — no new dependency, stdlib ``urllib`` only).
 
 Two chunking strategies:
   - "fixed": sliding window over characters with overlap. Simple, predictable.
@@ -14,7 +16,10 @@ chunk index, and the strategy used — so citations can point back to the origin
 
 from __future__ import annotations
 
+import html
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -73,6 +78,67 @@ def _read_docx(path: Path) -> list[tuple[str, str]]:
                 paragraphs.append(" | ".join(cells))
     text = "\n\n".join(paragraphs)
     return [(text, "section 1")] if text else []
+
+
+def html_to_text(page: str) -> str:
+    """Strip an HTML page down to readable text.
+
+    Drops ``<script>``/``<style>`` blocks entirely, turns block-level closes
+    into paragraph breaks (so the paragraph chunker keeps natural boundaries),
+    strips the remaining tags, and unescapes entities. The ``<title>`` is kept
+    as the first paragraph when present, so a fetched page still cites well.
+    """
+    title = ""
+    m = re.search(r"<title[^>]*>(.*?)</title>", page, re.IGNORECASE | re.DOTALL)
+    if m:
+        title = re.sub(r"<[^>]+>", "", m.group(1)).strip()
+    body = re.sub(r"<title[^>]*>.*?</title>", "", page, flags=re.IGNORECASE | re.DOTALL)
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", body, flags=re.IGNORECASE | re.DOTALL)
+    body = re.sub(r"</(p|div|section|article|li|h[1-6]|tr|blockquote)>", "\n\n", body, flags=re.IGNORECASE)
+    body = re.sub(r"<br\s*/?>", "\n\n", body, flags=re.IGNORECASE)
+    body = re.sub(r"<[^>]+>", "", body)
+    lines = [html.unescape(line.strip()) for line in body.splitlines()]
+    paragraphs = [line for line in lines if line]
+    if title:
+        paragraphs.insert(0, html.unescape(title))
+    return "\n\n".join(paragraphs)
+
+
+def fetch_url(url: str, timeout: float = 30.0) -> str:
+    """Fetch `url` and return its cleaned text.
+
+    Raises ``ValueError`` on a non-200 status, on a non-text content type, or
+    when nothing readable survives cleaning; network errors from ``urllib``
+    (``URLError``/``HTTPError``) propagate so callers can tell them apart.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": "RAG-knowledge-qa/1.0"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        status = getattr(response, "status", 200)
+        if status != 200:
+            raise ValueError(f"Failed to fetch {url}: HTTP {status}")
+        content_type = (response.headers.get_content_type() if response.headers else "text/html")
+        raw = response.read()
+        charset = response.headers.get_content_charset("utf-8") if response.headers else "utf-8"
+        text = raw.decode(charset, errors="ignore")
+    if content_type == "text/plain":
+        cleaned = text.strip()
+    elif content_type in ("text/html", "application/xhtml+xml"):
+        cleaned = html_to_text(text)
+    else:
+        raise ValueError(f"Refusing to ingest {url}: unsupported content type {content_type!r}")
+    if not cleaned:
+        raise ValueError(f"No readable text found at {url}")
+    return cleaned
+
+
+def load_url(url: str, timeout: float = 30.0) -> Chunk:
+    """Fetch one web page as a single document Chunk.
+
+    The URL itself is the chunk source, so citations point back to the page
+    rather than to a downloaded file.
+    """
+    text = fetch_url(url, timeout=timeout)
+    return Chunk(text=text, metadata={"source": url, "location": "web page"})
 
 
 def load_documents(folder: str | Path) -> list[Chunk]:

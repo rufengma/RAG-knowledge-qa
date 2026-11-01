@@ -88,6 +88,7 @@ All flags, as shown by `python cli.py <command> --help`:
 | Command | Flags | Notes |
 |---|---|---|
 | `ingest <docs_dir>` | — | Builds the FAISS index from `.pdf`/`.md`/`.txt`/`.markdown`/`.docx` files in the folder. Chunking and embedding come from `.env` (`CHUNK_STRATEGY`, `CHUNK_SIZE`, `EMBEDDING_PROVIDER`…). |
+| `ingest-url <url>` | — | Fetches one HTML or plain-text web page, strips it to text (scripts/styles dropped), and builds the FAISS index from it. The URL itself is stored as the chunk source, so citations point back to the page. |
 | `ask "<question>"` | `--rerank` | Generates a cited answer (needs `OPENAI_API_KEY`). Without `--rerank` it uses the `RERANK` env setting. |
 | `retrieve "<question>"` | `--top-k N`, `--strategy {dense,bm25,hybrid}`, `--rerank` | Retrieval only, no LLM needed. `--top-k` overrides `TOP_K` (default 5); `--strategy` overrides `RETRIEVAL_STRATEGY` (default `dense`); `--rerank` forces cross-encoder reranking on. |
 | `python -m src.eval` | `--golden PATH`, `--judge`, `--top-k K [K …]`, `--strategy {dense,bm25,hybrid}`, `--rerank` | Evaluates on the golden set (default `eval/golden_qa.jsonl`). `--judge` adds the LLM-as-judge faithfulness check (needs API key); `--top-k` sweeps several depths in one run. |
@@ -224,12 +225,12 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 
 ```
 ├── app.py              # Streamlit UI: upload docs, chat with citations
-├── cli.py              # CLI: ingest | ask | retrieve
+├── cli.py              # CLI: ingest | ingest-url | ask | retrieve
 ├── requirements.txt
 ├── .env.example
 ├── src/
 │   ├── config.py       # env-based settings
-│   ├── ingest.py       # load pdf/md/txt/docx + chunking (fixed, paragraph)
+│   ├── ingest.py       # load pdf/md/txt/docx + web URL + chunking (fixed, paragraph)
 │   ├── embeddings.py   # local (sentence-transformers) / OpenAI embeddings
 │   ├── vectorstore.py   # FAISS wrapper + disk persistence
 │   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion (+ rerank)

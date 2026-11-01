@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.ingest import Chunk, chunk_documents, load_documents
+from src.ingest import Chunk, chunk_documents, fetch_url, html_to_text, load_documents, load_url
 
 
 def _doc(text: str, **meta) -> Chunk:
@@ -254,3 +254,112 @@ def test_load_documents_docx_alongside_md(tmp_path: Path):
     _write_docx(tmp_path / "b.docx", ["word doc"])
     docs = load_documents(tmp_path)
     assert {d.source for d in docs} == {"a.md", "b.docx"}
+
+
+# ---------------------------------------------------------------------------
+# Web URL ingestion (src/ingest.py: html_to_text / fetch_url / load_url)
+# ---------------------------------------------------------------------------
+
+
+class _FakeHeaders:
+    def __init__(self, content_type="text/html", charset="utf-8"):
+        self._content_type = content_type
+        self._charset = charset
+
+    def get_content_type(self):
+        return self._content_type
+
+    def get_content_charset(self, default="utf-8"):
+        return self._charset or default
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes, status=200, content_type="text/html", charset="utf-8"):
+        self._body = body
+        self.status = status
+        self.headers = _FakeHeaders(content_type, charset)
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _stub_urlopen(monkeypatch, body, status=200, content_type="text/html"):
+    import urllib.request
+
+    seen = {}
+
+    def fake_urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        seen["timeout"] = timeout
+        seen["user_agent"] = request.get_header("User-agent")
+        return _FakeResponse(body, status=status, content_type=content_type)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    return seen
+
+
+def test_html_to_text_drops_script_and_style_and_keeps_title():
+    page = (
+        "<html><head><title>Retrieval Guide</title>"
+        "<style>p { color: red; }</style>"
+        "<script>var secret = 1;</script></head>"
+        "<body><p>First &amp; foremost.</p><p>Second paragraph.</p></body></html>"
+    )
+    text = html_to_text(page)
+    assert text.startswith("Retrieval Guide")
+    assert "secret" not in text
+    assert "color: red" not in text
+    assert "First & foremost." in text
+    assert "Second paragraph." in text
+
+
+def test_html_to_text_block_closes_become_paragraph_breaks():
+    text = html_to_text("<p>Alpha.</p><p>Beta.</p>")
+    assert text.split("\n\n") == ["Alpha.", "Beta."]
+
+
+def test_fetch_url_plain_text_passes_through(monkeypatch):
+    seen = _stub_urlopen(monkeypatch, b"plain notes\nsecond line", content_type="text/plain")
+    assert fetch_url("https://example.com/notes.txt") == "plain notes\nsecond line"
+    assert seen["url"] == "https://example.com/notes.txt"
+    assert seen["user_agent"] == "RAG-knowledge-qa/1.0"
+
+
+def test_fetch_url_rejects_non_text_content_type(monkeypatch):
+    _stub_urlopen(monkeypatch, b"\x89PNG", content_type="image/png")
+    with pytest.raises(ValueError, match="unsupported content type"):
+        fetch_url("https://example.com/pic.png")
+
+
+def test_fetch_url_rejects_non_200_status(monkeypatch):
+    _stub_urlopen(monkeypatch, b"not found", status=404)
+    with pytest.raises(ValueError, match="HTTP 404"):
+        fetch_url("https://example.com/missing")
+
+
+def test_fetch_url_rejects_empty_page(monkeypatch):
+    _stub_urlopen(monkeypatch, b"<html><body></body></html>")
+    with pytest.raises(ValueError, match="No readable text"):
+        fetch_url("https://example.com/empty")
+
+
+def test_load_url_chunk_source_is_the_url_and_paragraphs_chunk(monkeypatch):
+    _stub_urlopen(
+        monkeypatch,
+        b"<html><head><title>Web Note</title></head>"
+        b"<body><p>Alpha paragraph.</p><p>Beta paragraph.</p></body></html>",
+    )
+    doc = load_url("https://example.com/note")
+    assert doc.source == "https://example.com/note"
+    assert doc.location == "web page"
+    chunks = chunk_documents([doc], strategy="paragraph", chunk_size=20, chunk_overlap=0)
+    texts = [c.text for c in chunks]
+    assert "Alpha paragraph." in texts
+    assert "Beta paragraph." in texts
+    assert all(c.source == "https://example.com/note" for c in chunks)
