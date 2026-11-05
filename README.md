@@ -89,15 +89,17 @@ All flags, as shown by `python cli.py <command> --help`:
 |---|---|---|
 | `ingest <docs_dir>` | — | Builds the FAISS index from `.pdf`/`.md`/`.txt`/`.markdown`/`.docx` files in the folder. Chunking and embedding come from `.env` (`CHUNK_STRATEGY`, `CHUNK_SIZE`, `EMBEDDING_PROVIDER`…). |
 | `ingest-url <url>` | — | Fetches one HTML or plain-text web page, strips it to text (scripts/styles dropped), and builds the FAISS index from it. The URL itself is stored as the chunk source, so citations point back to the page. |
-| `ask "<question>"` | `--rerank` | Generates a cited answer (needs `OPENAI_API_KEY`). Without `--rerank` it uses the `RERANK` env setting. |
-| `retrieve "<question>"` | `--top-k N`, `--strategy {dense,bm25,hybrid}`, `--rerank` | Retrieval only, no LLM needed. `--top-k` overrides `TOP_K` (default 5); `--strategy` overrides `RETRIEVAL_STRATEGY` (default `dense`); `--rerank` forces cross-encoder reranking on. |
-| `python -m src.eval` | `--golden PATH`, `--judge`, `--top-k K [K …]`, `--strategy {dense,bm25,hybrid}`, `--rerank` | Evaluates on the golden set (default `eval/golden_qa.jsonl`). `--judge` adds the LLM-as-judge faithfulness check (needs API key); `--top-k` sweeps several depths in one run. |
+| `ask "<question>"` | `--rerank`, `--hyde` | Generates a cited answer (needs `OPENAI_API_KEY`). Without `--rerank` it uses the `RERANK` env setting; `--hyde` expands the query with a hypothetical answer passage first. |
+| `retrieve "<question>"` | `--top-k N`, `--strategy {dense,bm25,hybrid}`, `--rerank`, `--hyde` | Retrieval only; no LLM needed unless `--hyde` is on. `--top-k` overrides `TOP_K` (default 5); `--strategy` overrides `RETRIEVAL_STRATEGY` (default `dense`); `--rerank` forces cross-encoder reranking on. |
+| `python -m src.eval` | `--golden PATH`, `--judge`, `--top-k K [K …]`, `--strategy {dense,bm25,hybrid}`, `--rerank`, `--hyde` | Evaluates on the golden set (default `eval/golden_qa.jsonl`). `--judge` adds the LLM-as-judge faithfulness check (needs API key); `--top-k` sweeps several depths in one run; `--hyde` measures HyDE query expansion on the same metrics. |
 
 ```bash
 python cli.py ingest data/sample_docs
 python cli.py retrieve "What is RAG?" --top-k 3 --strategy hybrid --rerank
 python cli.py ask "What is RAG?" --rerank
+python cli.py retrieve "What is RAG?" --hyde
 python -m src.eval --strategy hybrid --rerank --top-k 1 3 5 10
+python -m src.eval --hyde --top-k 1 3 5   # measure the HyDE gain on the golden set
 ```
 
 ## Configuration
@@ -107,7 +109,7 @@ variables or a `.env` file (see `.env.example`):
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required for `ask`, the UI, and `--judge`. Not needed for ingest/retrieval/eval. |
+| `OPENAI_API_KEY` | — | Required for `ask`, the UI, `--judge`, and `--hyde`. Not needed for ingest/retrieval/eval. |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint (Ollama, vLLM, Together…) |
 | `LLM_MODEL` | `gpt-4o-mini` | Chat model for answer generation |
 | `EMBEDDING_PROVIDER` | `local` | `local` (sentence-transformers) or `openai` |
@@ -122,6 +124,8 @@ variables or a `.env` file (see `.env.example`):
 | `RERANK` | `false` | `true` to rerank first-stage candidates with a cross-encoder |
 | `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L6-v2` | Cross-encoder model for reranking |
 | `RERANK_CANDIDATES` | `20` | First-stage candidate pool size to rerank |
+| `HYDE` | `false` | `true` to expand the query with a HyDE hypothetical answer passage before retrieval (needs API key) |
+| `HYDE_MODEL` | *(empty)* | Chat model for the HyDE passage; empty = reuse `LLM_MODEL` |
 | `USAGE_LOG` | *(empty)* | JSONL path for per-query usage logging (tokens + latency); empty = disabled |
 
 Changing the embedding model invalidates the index — the loader checks the
@@ -209,6 +213,29 @@ hot path when latency matters. On the sample golden set, hybrid + rerank
 keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 `eval/results.md`).
 
+## HyDE query expansion
+
+Short questions embed far from the long passages that answer them. HyDE
+(Hypothetical Document Embeddings, `src/hyde.py`) asks the LLM to write a
+short passage that *would* answer the question, then embeds that passage
+instead of the raw question — the hypothetical answer is stylistically much
+closer to the real chunks, so dense (and hybrid) retrieval finds them more
+easily. BM25 benefits too: the passage adds on-topic keywords the short
+question never contained. When reranking is also on, the cross-encoder
+still scores candidates against the original question, not the guess.
+
+```bash
+python cli.py retrieve "What is RAG?" --hyde        # see the passage + top-k
+python cli.py ask "What is RAG?" --hyde             # ask with HyDE retrieval
+python -m src.eval --hyde --top-k 1 3 5             # measure it on the golden set
+```
+
+HyDE costs one extra LLM call per query (temperature 0.2, a cheap model is
+fine — set `HYDE_MODEL` to override `LLM_MODEL`), so it stays off by
+default (`HYDE=false`). Enable it via `--hyde` or `HYDE=true` after the eval
+run above shows a real gain on your corpus; on a tiny sample golden set the
+difference may be within noise.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -233,13 +260,14 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 │   ├── ingest.py       # load pdf/md/txt/docx + web URL + chunking (fixed, paragraph)
 │   ├── embeddings.py   # local (sentence-transformers) / OpenAI embeddings
 │   ├── vectorstore.py   # FAISS wrapper + disk persistence
-│   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion (+ rerank)
+│   ├── retriever.py    # top-k retrieval: dense / bm25 / hybrid fusion (+ rerank, + HyDE)
 │   ├── hybrid.py       # in-house BM25 index (no extra dependency)
+│   ├── hyde.py         # HyDE query expansion: hypothetical answer passage via LLM
 │   ├── rerank.py       # cross-encoder second-stage reranking
 │   ├── qa.py           # RAG chain: cited answers + "I don't know" fallback
 │   ├── usage.py        # per-query token/latency JSONL logging (USAGE_LOG)
 │   └── eval.py         # golden-set eval: retrieval metrics + LLM judge
-├── tests/              # pytest suites: ingest / eval / usage / config
+├── tests/              # pytest suites: ingest / eval / usage / config / hyde
 ├── data/
 │   ├── sample_docs/    # 4 short markdown docs so the demo works out of the box
 │   └── index/          # built FAISS index (gitignored)
@@ -251,9 +279,9 @@ keeps hit_rate@3 at 100% with more stable top-1 ordering (see
 ## Roadmap
 
 - [x] Hybrid retrieval: BM25 + dense with weighted-sum fusion (alpha tunable via `HYBRID_ALPHA`)
-- [ ] Reranker stage (cross-encoder) before generation
+- [x] Reranker stage (cross-encoder) before generation (`--rerank`)
 - [ ] Semantic chunking strategy
-- [ ] Multi-query / HyDE query expansion
+- [x] Multi-query / HyDE query expansion (`--hyde`, `src/hyde.py`)
 - [ ] Dockerfile + one-command demo
 - [ ] Persisted eval history with charts in `eval/results.md`
 

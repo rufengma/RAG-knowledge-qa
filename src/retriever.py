@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from .embeddings import EmbeddingClient
 from .hybrid import BM25Index
+from .hyde import HyDEGenerator
 from .ingest import Chunk
 from .rerank import DEFAULT_RERANK_MODEL, Reranker
 from .vectorstore import VectorStore
@@ -40,11 +41,15 @@ class Retriever:
         rerank: bool = False,
         rerank_model: str = DEFAULT_RERANK_MODEL,
         rerank_candidates: int = 20,
+        hyde: bool = False,
+        hyde_generator: HyDEGenerator | None = None,
     ):
         if strategy not in STRATEGIES:
             raise ValueError(f"strategy must be one of {STRATEGIES}, got {strategy!r}")
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha!r}")
+        if hyde and hyde_generator is None:
+            raise ValueError("hyde=True needs a hyde_generator (see HyDEGenerator)")
         self.store = store
         self.embedder = embedder
         self.top_k = top_k
@@ -53,6 +58,11 @@ class Retriever:
         self.rerank = rerank
         self.rerank_model = rerank_model
         self.rerank_candidates = rerank_candidates
+        self.hyde = hyde
+        self.hyde_generator = hyde_generator
+        # Last hypothetical document generated (None when HyDE is off or
+        # retrieve() hasn't run yet); handy for debugging and CLI display.
+        self.last_hyde_document: str | None = None
         self._bm25: BM25Index | None = None  # built lazily; only needed for bm25/hybrid
         self._reranker: Reranker | None = None  # loaded lazily; only when reranking
 
@@ -62,19 +72,30 @@ class Retriever:
         return self._bm25
 
     def retrieve(self, query: str, top_k: int | None = None, strategy: str | None = None,
-                 rerank: bool | None = None) -> list[RetrievedChunk]:
+                 rerank: bool | None = None, hyde: bool | None = None) -> list[RetrievedChunk]:
         k = top_k if top_k is not None else self.top_k
         strat = strategy or self.strategy
         do_rerank = self.rerank if rerank is None else rerank
+        do_hyde = self.hyde if hyde is None else hyde
+
+        # HyDE: replace the raw question with a hypothetical answer passage
+        # for the cheap first-stage retrieval. Reranking below still scores
+        # candidates against the original question.
+        first_stage_query = query
+        if do_hyde:
+            if self.hyde_generator is None:
+                raise ValueError("hyde=True needs a hyde_generator (see HyDEGenerator)")
+            self.last_hyde_document = self.hyde_generator.generate(query)
+            first_stage_query = self.last_hyde_document
 
         if do_rerank:
             # Fetch a larger candidate pool from the cheap first-stage
             # strategy, then let the cross-encoder reorder it down to k.
             pool_k = max(k * 2, min(self.rerank_candidates, len(self.store)))
-            candidates = self._retrieve_first_stage(query, pool_k, strat)
+            candidates = self._retrieve_first_stage(first_stage_query, pool_k, strat)
             return self._reranker_lazy().rerank(query, candidates, top_k=k)
 
-        return self._retrieve_first_stage(query, k, strat)
+        return self._retrieve_first_stage(first_stage_query, k, strat)
 
     def _retrieve_first_stage(self, query: str, k: int, strat: str) -> list[RetrievedChunk]:
         if strat == "dense":

@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.config import settings  # noqa: E402
 from src.embeddings import make_embedding_client  # noqa: E402
+from src.hyde import HyDEGenerator  # noqa: E402
 from src.qa import answer_question  # noqa: E402
 from src.retriever import Retriever  # noqa: E402
 from src.vectorstore import VectorStore  # noqa: E402
@@ -104,6 +105,7 @@ def compare_configs(
     top_k_options: tuple[int, ...] = (1, 3, 5),
     strategy: str = "dense",
     rerank: bool = False,
+    hyde: bool = False,
 ) -> None:
     """Rebuild-free config sweep: vary only retrieval-time knobs (top_k, strategy).
 
@@ -118,7 +120,7 @@ def compare_configs(
     )
     store = VectorStore.load(index_dir, embedding_model=_embedding_model_name())
     print(f"\nIndex: {len(store)} chunks | embedding model: {_embedding_model_name()}")
-    print(f"Strategy: {strategy} (alpha={settings.hybrid_alpha}) | rerank={rerank}")
+    print(f"Strategy: {strategy} (alpha={settings.hybrid_alpha}) | rerank={rerank} | hyde={hyde}")
     print(f"Golden set: {len(golden)} questions\n")
     print(f"{'top_k':>6} | {'hit_rate':>8} | {'recall':>8}")
     print("-" * 30)
@@ -132,6 +134,8 @@ def compare_configs(
             rerank=rerank,
             rerank_model=settings.rerank_model,
             rerank_candidates=settings.rerank_candidates,
+            hyde=hyde,
+            hyde_generator=HyDEGenerator(settings) if hyde else None,
         )
         m = retrieval_metrics(retriever, golden, k_values=(k,))[k]
         print(f"{k:>6} | {m['hit_rate']:>8.2%} | {m['recall']:>8.2%}")
@@ -157,12 +161,18 @@ def main() -> None:
         action="store_true",
         help="Rerank first-stage candidates with a cross-encoder (see RERANK_MODEL)",
     )
+    parser.add_argument(
+        "--hyde",
+        action="store_true",
+        help="Expand each query with a HyDE hypothetical answer passage (needs API key)",
+    )
     args = parser.parse_args()
 
     settings.validate()
     golden = load_golden(Path(args.golden))
     strategy = args.strategy or settings.retrieval_strategy
     rerank = args.rerank or settings.rerank
+    hyde = args.hyde or settings.hyde
 
     embedder = make_embedding_client(
         provider=settings.embedding_provider,
@@ -176,7 +186,7 @@ def main() -> None:
 
     # 1) Retrieval metrics — no LLM needed.
     print("\n=== Retrieval metrics ===")
-    compare_configs(settings.index_dir, golden, top_k_options=tuple(args.top_k), strategy=strategy, rerank=rerank)
+    compare_configs(settings.index_dir, golden, top_k_options=tuple(args.top_k), strategy=strategy, rerank=rerank, hyde=hyde)
 
     # 2) Optional LLM-as-judge faithfulness on generated answers.
     if args.judge:

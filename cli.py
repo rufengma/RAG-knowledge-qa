@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.config import settings  # noqa: E402
 from src.embeddings import make_embedding_client  # noqa: E402
+from src.hyde import HyDEGenerator  # noqa: E402
 from src.ingest import chunk_documents, load_documents, load_url  # noqa: E402
 from src.qa import answer_question, format_result  # noqa: E402
 from src.retriever import Retriever  # noqa: E402
@@ -67,9 +68,10 @@ def cmd_ingest_url(args: argparse.Namespace) -> None:
     _build_index([load_url(args.url)], args.url)
 
 
-def load_retriever() -> Retriever:
+def load_retriever(hyde: bool | None = None) -> Retriever:
     settings.validate()
     store = VectorStore.load(settings.index_dir, embedding_model=embedding_model_name())
+    use_hyde = settings.hyde if hyde is None else hyde
     return Retriever(
         store,
         make_embedder(),
@@ -79,24 +81,28 @@ def load_retriever() -> Retriever:
         rerank=settings.rerank,
         rerank_model=settings.rerank_model,
         rerank_candidates=settings.rerank_candidates,
+        hyde=use_hyde,
+        hyde_generator=HyDEGenerator(settings) if use_hyde else None,
     )
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
-    retriever = load_retriever()
+    retriever = load_retriever(hyde=args.hyde if args.hyde else None)
     retrieved = retriever.retrieve(args.question, rerank=args.rerank if args.rerank else None)
     result = answer_question(args.question, retrieved, settings)
     print(format_result(result))
 
 
 def cmd_retrieve(args: argparse.Namespace) -> None:
-    retriever = load_retriever()
+    retriever = load_retriever(hyde=args.hyde if args.hyde else None)
     strategy = args.strategy or retriever.strategy
     rerank = args.rerank or retriever.rerank
-    print(f"strategy={strategy} alpha={retriever.alpha} rerank={rerank}")
-    for i, r in enumerate(
-        retriever.retrieve(args.question, top_k=args.top_k, strategy=strategy, rerank=rerank)
-    ):
+    print(f"strategy={strategy} alpha={retriever.alpha} rerank={rerank} hyde={retriever.hyde}")
+    retrieved = retriever.retrieve(args.question, top_k=args.top_k, strategy=strategy, rerank=rerank)
+    if retriever.last_hyde_document:
+        print(f"HyDE passage: {retriever.last_hyde_document[:300]}")
+        print()
+    for i, r in enumerate(retrieved):
         score_line = f"score={r.score:.3f}"
         if r.rerank_score is not None:
             score_line += f" rerank_score={r.rerank_score:.3f}"
@@ -122,6 +128,11 @@ def main() -> None:
         action="store_true",
         help="Rerank the first-stage candidates with a cross-encoder (see RERANK_MODEL)",
     )
+    p_ask.add_argument(
+        "--hyde",
+        action="store_true",
+        help="Expand the query with a HyDE hypothetical answer passage (needs OPENAI_API_KEY)",
+    )
 
     p_retrieve = sub.add_parser("retrieve", help="Show top-k retrieved chunks (no LLM needed)")
     p_retrieve.add_argument("question", help="The query")
@@ -136,6 +147,11 @@ def main() -> None:
         "--rerank",
         action="store_true",
         help="Rerank the first-stage candidates with a cross-encoder (see RERANK_MODEL)",
+    )
+    p_retrieve.add_argument(
+        "--hyde",
+        action="store_true",
+        help="Expand the query with a HyDE hypothetical answer passage (needs OPENAI_API_KEY)",
     )
 
     args = parser.parse_args()

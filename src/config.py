@@ -67,6 +67,10 @@ class Settings:
     rerank_model: str = _getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2")
     rerank_candidates: int = _getint("RERANK_CANDIDATES", 20)  # first-stage pool size to rerank
 
+    # --- HyDE query expansion (off by default; needs an LLM key when on) ---
+    hyde: bool = _getbool("HYDE", False)  # embed a hypothetical answer passage instead of the raw query
+    hyde_model: str = _getenv("HYDE_MODEL", "")  # empty = reuse LLM_MODEL
+
     # --- Paths ---
     index_dir: str = _getenv("INDEX_DIR", "data/index")
     # JSONL path for per-query usage logging (tokens + latency); empty = disabled.
