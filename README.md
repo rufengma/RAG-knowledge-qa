@@ -81,6 +81,8 @@ python -m src.eval
 streamlit run app.py
 ```
 
+The chat UI keeps multi-turn conversation memory: follow-up questions ("tell me more about it") are answered in context — the last few turns are sent to the LLM only to resolve references, while every factual claim still has to come from the retrieved sources. Use **Clear chat history** in the sidebar to start a fresh conversation.
+
 ## CLI reference
 
 All flags, as shown by `python cli.py <command> --help`:

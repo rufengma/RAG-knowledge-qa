@@ -20,6 +20,11 @@ from .usage import UsageRecord, append_usage
 # MiniLM cosine scores for on-topic chunks are usually well above 0.35.
 RELEVANCE_THRESHOLD = 0.25
 
+# How many prior turns are sent back to the LLM as conversation context.
+# Only the most recent turns are kept, so a long chat stays cheap and the
+# retrieved sources (not stale answers) remain the ground truth.
+MAX_HISTORY_TURNS = 4
+
 SYSTEM_PROMPT = """\
 You answer questions using ONLY the numbered sources below.
 - Cite every factual claim with the source number, e.g. "Dense retrieval uses embeddings [1]."
@@ -35,12 +40,33 @@ class QAResult:
     grounded: bool  # False when we refused for lack of evidence
 
 
-def build_prompt(question: str, retrieved: list[RetrievedChunk]) -> str:
+def build_prompt(
+    question: str,
+    retrieved: list[RetrievedChunk],
+    history: list[tuple[str, str]] | None = None,
+) -> str:
+    """Assemble the LLM prompt.
+
+    `history` is a list of prior (question, answer) turns, oldest first. Only
+    the most recent MAX_HISTORY_TURNS turns are included, and only so the
+    model can resolve follow-up references ("it", "that", "more about that");
+    factual claims must still come from the numbered sources.
+    """
     sources = "\n\n".join(
         f"[{i + 1}] ({r.chunk.source}, {r.chunk.location})\n{r.chunk.text}"
         for i, r in enumerate(retrieved)
     )
-    return f"{SYSTEM_PROMPT}\n\nSources:\n{sources}\n\nQuestion: {question}\nAnswer:"
+    parts = [SYSTEM_PROMPT]
+    turns = list(history or [])[-MAX_HISTORY_TURNS:]
+    if turns:
+        convo = "\n\n".join(f"User: {q}\nAssistant: {a}" for q, a in turns)
+        parts.append(
+            "Conversation so far — use it only to resolve follow-up references; "
+            "every factual claim must still come from the numbered sources below:\n"
+            + convo
+        )
+    parts.append(f"Sources:\n{sources}\n\nQuestion: {question}\nAnswer:")
+    return "\n\n".join(parts)
 
 
 def _maybe_log_usage(
@@ -75,8 +101,14 @@ def answer_question(
     question: str,
     retrieved: list[RetrievedChunk],
     settings: Settings,
+    history: list[tuple[str, str]] | None = None,
 ) -> QAResult:
-    """Run the RAG chain. Requires OPENAI_API_KEY (or another OpenAI-compatible key)."""
+    """Run the RAG chain. Requires OPENAI_API_KEY (or another OpenAI-compatible key).
+
+    `history` is the conversation so far as (question, answer) turns, oldest
+    first; it is passed to build_prompt so follow-up questions can refer back
+    to earlier turns. Refusals (no relevant chunk) ignore history.
+    """
     t0 = time.perf_counter()
     relevant = [r for r in retrieved if r.score >= RELEVANCE_THRESHOLD]
 
@@ -99,7 +131,7 @@ def answer_question(
     from openai import OpenAI
 
     client = OpenAI(api_key=settings.openai_api_key, base_url=settings.llm_base_url)
-    prompt = build_prompt(question, relevant)
+    prompt = build_prompt(question, relevant, history=history)
     resp = client.chat.completions.create(
         model=settings.llm_model,
         messages=[
