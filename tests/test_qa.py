@@ -10,7 +10,8 @@ import types
 
 from src.config import Settings
 from src.ingest import Chunk
-from src.qa import MAX_HISTORY_TURNS, answer_question, build_prompt
+from src.prompts import MAX_HISTORY_TURNS, build_prompt
+from src.qa import answer_question
 from src.retriever import RetrievedChunk
 
 
@@ -46,6 +47,16 @@ def test_build_prompt_without_history_has_no_conversation_section():
     assert "Conversation so far" not in prompt
     assert "Question: What is dense retrieval?" in prompt
     assert "[1] (doc.md" in prompt
+
+
+def test_qa_reexports_prompt_helpers():
+    """Old imports from src.qa keep working after the move to src.prompts."""
+    import src.prompts as prompts
+    import src.qa as qa
+
+    assert qa.build_prompt is prompts.build_prompt
+    assert qa.SYSTEM_PROMPT is prompts.SYSTEM_PROMPT
+    assert qa.MAX_HISTORY_TURNS is prompts.MAX_HISTORY_TURNS
 
 
 def test_build_prompt_includes_history_turns():

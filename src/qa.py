@@ -13,23 +13,23 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .config import Settings
+from .prompts import MAX_HISTORY_TURNS, SYSTEM_PROMPT, build_prompt
 from .retriever import RetrievedChunk
 from .usage import UsageRecord, append_usage
+
+# Re-exported so existing callers can keep importing prompt helpers from qa.
+__all__ = [
+    "MAX_HISTORY_TURNS",
+    "SYSTEM_PROMPT",
+    "QAResult",
+    "answer_question",
+    "build_prompt",
+    "format_result",
+]
 
 # Chunks scoring below this cosine similarity are treated as irrelevant.
 # MiniLM cosine scores for on-topic chunks are usually well above 0.35.
 RELEVANCE_THRESHOLD = 0.25
-
-# How many prior turns are sent back to the LLM as conversation context.
-# Only the most recent turns are kept, so a long chat stays cheap and the
-# retrieved sources (not stale answers) remain the ground truth.
-MAX_HISTORY_TURNS = 4
-
-SYSTEM_PROMPT = """\
-You answer questions using ONLY the numbered sources below.
-- Cite every factual claim with the source number, e.g. "Dense retrieval uses embeddings [1]."
-- If the sources do not contain the answer, say exactly: "I don't know based on the provided documents."
-- Be concise. Do not invent facts beyond the sources."""
 
 
 @dataclass
@@ -38,35 +38,6 @@ class QAResult:
     answer: str
     sources: list[RetrievedChunk]
     grounded: bool  # False when we refused for lack of evidence
-
-
-def build_prompt(
-    question: str,
-    retrieved: list[RetrievedChunk],
-    history: list[tuple[str, str]] | None = None,
-) -> str:
-    """Assemble the LLM prompt.
-
-    `history` is a list of prior (question, answer) turns, oldest first. Only
-    the most recent MAX_HISTORY_TURNS turns are included, and only so the
-    model can resolve follow-up references ("it", "that", "more about that");
-    factual claims must still come from the numbered sources.
-    """
-    sources = "\n\n".join(
-        f"[{i + 1}] ({r.chunk.source}, {r.chunk.location})\n{r.chunk.text}"
-        for i, r in enumerate(retrieved)
-    )
-    parts = [SYSTEM_PROMPT]
-    turns = list(history or [])[-MAX_HISTORY_TURNS:]
-    if turns:
-        convo = "\n\n".join(f"User: {q}\nAssistant: {a}" for q, a in turns)
-        parts.append(
-            "Conversation so far — use it only to resolve follow-up references; "
-            "every factual claim must still come from the numbered sources below:\n"
-            + convo
-        )
-    parts.append(f"Sources:\n{sources}\n\nQuestion: {question}\nAnswer:")
-    return "\n\n".join(parts)
 
 
 def _maybe_log_usage(

@@ -267,9 +267,10 @@ difference may be within noise.
 │   ├── hyde.py         # HyDE query expansion: hypothetical answer passage via LLM
 │   ├── rerank.py       # cross-encoder second-stage reranking
 │   ├── qa.py           # RAG chain: cited answers + "I don't know" fallback
+│   ├── prompts.py      # system prompt + prompt assembly (history, sources)
 │   ├── usage.py        # per-query token/latency JSONL logging (USAGE_LOG)
 │   └── eval.py         # golden-set eval: retrieval metrics + LLM judge
-├── tests/              # pytest suites: ingest / eval / usage / config / hyde
+├── tests/              # pytest suites: ingest / eval / usage / config / hyde / qa
 ├── data/
 │   ├── sample_docs/    # 4 short markdown docs so the demo works out of the box
 │   └── index/          # built FAISS index (gitignored)
