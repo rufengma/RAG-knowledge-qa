@@ -83,6 +83,46 @@ streamlit run app.py
 
 The chat UI keeps multi-turn conversation memory: follow-up questions ("tell me more about it") are answered in context — the last few turns are sent to the LLM only to resolve references, while every factual claim still has to come from the retrieved sources. Use **Clear chat history** in the sidebar to start a fresh conversation.
 
+## Demo
+
+The Streamlit UI (`streamlit run app.py`) works the same way as the CLI, with
+a chat interface on top:
+
+1. **Upload documents** in the sidebar (`.pdf` / `.md` / `.txt`) and click
+   **Build index** — the sidebar shows the chunk count of the current index.
+2. **Ask a question** in the chat box. The answer comes back with its sources
+   listed underneath, each with a relevance score.
+3. **Ask a follow-up** ("tell me more about it", "what about chunking?") —
+   the last few turns are passed along as context so follow-ups resolve
+   references, while every factual claim still has to come from the retrieved
+   sources. **Clear chat history** in the sidebar starts a fresh conversation.
+
+Sample run over the bundled sample docs (same question, CLI form):
+
+```text
+$ python cli.py ask "What is RAG?"
+
+Retrieval-Augmented Generation (RAG) is a technique that combines information
+retrieval with text generation: instead of relying solely on a language model's
+parametric memory, the system first retrieves relevant documents from an
+external knowledge base and then conditions the answer on them [2]. It addresses
+two problems — a fixed knowledge cutoff and hallucination: the knowledge base
+can be updated at any time without retraining, and grounding the answer in
+retrieved passages makes the output verifiable [2].
+
+Sources:
+  [1] rag_concepts.md (section 1) — score 0.578
+  [2] rag_concepts.md (section 1) — score 0.504
+  [3] evaluating_rag.md (section 1) — score 0.412
+  [4] vector_databases.md (section 1) — score 0.280
+```
+
+The answer above was generated through a local OpenAI-compatible endpoint
+(`LLM_BASE_URL`); point it at OpenAI, Ollama, or vLLM to use a real model.
+When no chunk scores above the relevance threshold, the answer is
+"I don't know based on the provided documents." instead of a guess — try
+`python cli.py ask "What is the capital of France?"` to see the refusal.
+
 ## CLI reference
 
 All flags, as shown by `python cli.py <command> --help`:
